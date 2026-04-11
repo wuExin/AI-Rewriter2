@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.exe
+
+# 项目特定
+logs/
+output/
+*.rar
+*.docx
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/
+
+# 临时文件
+answer.txt
+dump_think_dom.mjs
+inspect_dom.mjs

@@ -1,0 +1,10 @@
+output:
+  output_dir: ./output
+yuanbao:
+  opencli_path: opencli/dist/main.js
+  search: false
+  think: true
+  timeout: 600
+  # 请求延迟设置（分钟），用于防止封号
+  delay_min: 1
+  delay_max: 15
