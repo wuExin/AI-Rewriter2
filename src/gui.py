@@ -41,12 +41,15 @@ class App(ctk.CTk):
         ctk.set_default_color_theme("blue")
 
         self.title("AI文章改写工具 V2 - 元宝版")
-        self.geometry("800x650")
-        self.minsize(700, 550)
+        self.geometry("800x700")
+        self.minsize(700, 600)
 
         self.log_queue = queue.Queue()
         self.progress_queue = queue.Queue()
         self.results = []
+
+        # 流程选择：默认新流程
+        self.process_mode = ctk.StringVar(value="emotion")  # emotion=新流程, rewrite=旧流程
 
         self._build_ui()
         self._process_queues()
@@ -60,47 +63,80 @@ class App(ctk.CTk):
             font=ctk.CTkFont(size=20, weight="bold"),
         ).pack(pady=(15, 5))
 
+        # 流程选择区
+        mode_frame = ctk.CTkFrame(self)
+        mode_frame.pack(fill="x", padx=20, pady=5)
+
+        ctk.CTkLabel(mode_frame, text="选择流程：", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=10, pady=5)
+
+        ctk.CTkRadioButton(
+            mode_frame, text="情感标题生文（新流程）", variable=self.process_mode,
+            value="emotion", command=self.on_mode_change
+        ).pack(side="left", padx=5)
+
+        ctk.CTkRadioButton(
+            mode_frame, text="文章改写（旧流程）", variable=self.process_mode,
+            value="rewrite", command=self.on_mode_change
+        ).pack(side="left", padx=5)
+
         # 输入区
-        input_frame = ctk.CTkFrame(self)
-        input_frame.pack(fill="x", padx=20, pady=5)
+        self.input_frame = ctk.CTkFrame(self)
+        self.input_frame.pack(fill="x", padx=20, pady=5)
 
-        ctk.CTkLabel(input_frame, text="输入文章 URL（每行一个）：").pack(anchor="w", padx=10, pady=(5, 0))
+        self.input_label = ctk.CTkLabel(self.input_frame, text="输入文章 URL（每行一个）：")
+        self.input_label.pack(anchor="w", padx=10, pady=(5, 0))
 
-        self.url_input = ctk.CTkTextbox(input_frame, height=120)
+        self.url_input = ctk.CTkTextbox(self.input_frame, height=120)
         self.url_input.pack(fill="x", padx=10, pady=5)
         self.url_input.insert("1.0", "https://www.toutiao.com/article/7624543829000995374")
         self.url_input.bind("<FocusIn>", self._clear_placeholder)
         self._placeholder_active = True
 
-        # 按钮区
-        btn_frame = ctk.CTkFrame(self)
-        btn_frame.pack(fill="x", padx=20, pady=5)
+        # 情感流程：标题选择区（默认隐藏）
+        self.emotion_frame = ctk.CTkFrame(self)
 
+        ctk.CTkLabel(self.emotion_frame, text="情感标题生文流程：").pack(anchor="w", padx=10, pady=(5, 0))
+        ctk.CTkLabel(self.emotion_frame, text="点击按钮后将生成30个标题并依次处理（付费前+结局），每次之间有随机延时", font=ctk.CTkFont(size=10), text_color="gray").pack(anchor="w", padx=10, pady=(0, 5))
+
+        # 按钮区
+        self.btn_frame = ctk.CTkFrame(self)
+        self.btn_frame.pack(fill="x", padx=20, pady=5)
+
+        # 新流程按钮
+        self.emotion_batch_btn = ctk.CTkButton(
+            self.btn_frame, text="开始批量生成（30篇）", fg_color="#E74C3C", hover_color="#C0392B",
+            command=self.emotion_batch_start,
+        )
+
+        # 旧流程按钮
         self.start_btn = ctk.CTkButton(
-            btn_frame, text="开始改写", fg_color="#2CC985", hover_color="#25A873",
+            self.btn_frame, text="开始改写", fg_color="#2CC985", hover_color="#25A873",
             command=self.start_rewrite,
         )
-        self.start_btn.pack(side="left", padx=5, pady=5)
 
+        # 通用按钮
         ctk.CTkButton(
-            btn_frame, text="清空", fg_color="#FF6B6B", hover_color="#E55555",
+            self.btn_frame, text="清空", fg_color="#FF6B6B", hover_color="#E55555",
             command=self.clear_all, width=80,
         ).pack(side="left", padx=5, pady=5)
 
         ctk.CTkButton(
-            btn_frame, text="打开输出目录",
+            self.btn_frame, text="打开输出目录",
             command=self.open_output_dir, width=120,
         ).pack(side="left", padx=5, pady=5)
 
         ctk.CTkButton(
-            btn_frame, text="提示词设置",
+            self.btn_frame, text="提示词设置",
             command=self.open_prompt_settings, width=100,
         ).pack(side="right", padx=5, pady=5)
 
         ctk.CTkButton(
-            btn_frame, text="设置",
+            self.btn_frame, text="设置",
             command=self.open_settings, width=80,
         ).pack(side="right", padx=5, pady=5)
+
+        # 默认显示新流程UI（需要在按钮创建后调用）
+        self.on_mode_change()
 
         # 进度区
         progress_frame = ctk.CTkFrame(self)
@@ -160,6 +196,93 @@ class App(ctk.CTk):
                 urls.append(line)
         return urls
 
+    # ─── 流程模式切换 ───
+
+    def on_mode_change(self):
+        """处理流程模式切换"""
+        mode = self.process_mode.get()
+        if mode == "emotion":
+            # 新流程：显示情感流程说明，隐藏URL输入框
+            self.input_frame.pack_forget()
+            self.emotion_frame.pack(fill="x", padx=20, pady=5)
+            self._update_buttons()
+        else:
+            # 旧流程：显示URL输入框，隐藏情感流程
+            self.emotion_frame.pack_forget()
+            self.input_frame.pack(fill="x", padx=20, pady=5)
+            self._update_buttons()
+
+    def _update_buttons(self):
+        """根据流程模式更新按钮显示"""
+        mode = self.process_mode.get()
+
+        # 先隐藏所有流程按钮
+        self.emotion_batch_btn.pack_forget()
+        self.start_btn.pack_forget()
+
+        if mode == "emotion":
+            # 新流程：显示批量生成按钮
+            self.emotion_batch_btn.pack(side="left", padx=5, pady=5)
+        else:
+            # 旧流程：显示开始改写按钮
+            self.start_btn.pack(side="left", padx=5, pady=5)
+
+    # ─── 情感标题生文流程（新流程）───
+
+    def emotion_batch_start(self):
+        """批量生成30篇文章"""
+        self.emotion_batch_btn.configure(state="disabled", text="批量生成中...")
+        self._append_log("开始批量生成情感文章（30篇）...", "info")
+
+        thread = threading.Thread(target=self._run_emotion_batch, daemon=True)
+        thread.start()
+
+    def _run_emotion_batch(self):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        try:
+            cfg = load_config()
+            yuanbao_cfg = cfg.get("yuanbao", {})
+            output_dir = cfg.get("output", {}).get("output_dir", "./output")
+
+            yuanbao = YuanbaoClient(
+                opencli_path=yuanbao_cfg.get("opencli_path", "opencli"),
+                think=yuanbao_cfg.get("think", False),
+                search=yuanbao_cfg.get("search", False),
+                timeout=yuanbao_cfg.get("timeout", 600),
+            )
+
+            from .pipeline import EmotionPipeline
+
+            def safe_callback(msg, level):
+                self.log_queue.put((msg, level))
+                self.progress_queue.put((0, 30, msg))
+
+            pipeline = EmotionPipeline(
+                yuanbao=yuanbao,
+                output_dir=output_dir,
+                progress_callback=safe_callback,
+            )
+
+            result = loop.run_until_complete(
+                asyncio.wait_for(pipeline.run_all(progress_callback=safe_callback), timeout=3600*24)  # 24小时超时
+            )
+
+            if result.get("success"):
+                completed = result.get("completed", 0)
+                total = result.get("total", 30)
+                safe_callback(f"批量生成完成！成功 {completed}/{total} 篇", "success")
+                self.progress_queue.put((total, total, "批量生成完成"))
+            else:
+                safe_callback(f"批量生成失败: {result.get('error')}", "error")
+
+        except Exception as e:
+            self.log_queue.put((f"批量生成异常: {e}", "error"))
+        finally:
+            loop.close()
+            self.after(0, lambda: self.emotion_batch_btn.configure(state="normal", text="开始批量生成（30篇）"))
+
     # ─── 改写流程 ───
 
     def start_rewrite(self):
@@ -216,6 +339,17 @@ class App(ctk.CTk):
                 except Exception as e:
                     safe_callback(f"处理异常: {e}", "error")
                     self.results.append({"success": False, "original_url": url, "error": str(e)})
+
+                # 随机延时（最后一篇不需要延时）
+                if i < total - 1:
+                    delay_min = yuanbao_cfg.get("delay_min", 1)
+                    delay_max = yuanbao_cfg.get("delay_max", 15)
+                    if delay_max > 0:
+                        import random
+                        delay_seconds = random.uniform(delay_min * 60, delay_max * 60)
+                        delay_minutes = delay_seconds / 60
+                        safe_callback(f"[延迟] 等待 {delay_minutes:.1f} 分钟后继续（防止封号）...", "info")
+                        loop.run_until_complete(asyncio.sleep(delay_seconds))
 
             # 汇总
             self.progress_queue.put((total, total, "全部完成"))

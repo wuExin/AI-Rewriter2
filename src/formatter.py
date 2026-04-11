@@ -67,3 +67,31 @@ class OutputFormatter:
                 doc.add_paragraph(text)
 
         doc.save(str(path))
+
+    @staticmethod
+    def save_emotion_article(title: str, article: str, filepath: str):
+        """保存情感文章（Word 格式）"""
+        path = Path(filepath)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        doc = Document()
+
+        style = doc.styles["Normal"]
+        style.font.name = "微软雅黑"
+        style.font.size = Pt(11)
+
+        # 标题
+        doc.add_heading(title, level=1)
+
+        # 正文
+        for para_text in article.split("\n"):
+            text = para_text.strip()
+            if text:
+                doc.add_paragraph(text)
+
+        doc.save(str(path))
+
+        # 同时保存 Markdown
+        md_path = path.with_suffix(".md")
+        lines = [f"# {title}\n\n", article]
+        md_path.write_text("".join(lines), encoding="utf-8")
