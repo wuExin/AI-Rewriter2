@@ -8,6 +8,7 @@ DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "license.db")
 def get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
 
@@ -24,6 +25,3 @@ def init_db():
     """)
     conn.commit()
     conn.close()
-
-
-init_db()
