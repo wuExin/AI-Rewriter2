@@ -39,6 +39,9 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
 
+        from .license import check_license
+        check_license(self)
+
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
