@@ -6,8 +6,10 @@
 """
 import hashlib
 import os
+import re
 import subprocess
 import sys
+import threading
 import uuid
 
 import customtkinter as ctk
@@ -64,7 +66,7 @@ def _get_license_path() -> str:
 
 # ─── 在线验证 ────────────────────────────────────────────────
 
-def _verify_license(key: str, machine_id: str) -> tuple:
+def _verify_license(key: str, machine_id: str) -> tuple[bool, str]:
     """在线验证授权密钥。
 
     Returns:
@@ -78,7 +80,7 @@ def _verify_license(key: str, machine_id: str) -> tuple:
         )
         data = resp.json()
         return (data.get('ok', False), data.get('msg', ''))
-    except Exception:
+    except (requests.RequestException, ValueError):
         return (False, '网络连接失败，请检查网络后重试')
 
 
@@ -126,13 +128,21 @@ def _show_license_dialog(parent, machine_id: str):
         side="left", padx=(10, 0), pady=8
     )
 
-    machine_label = ctk.CTkLabel(
-        code_frame,
-        text=machine_id,
-        font=ctk.CTkFont(size=12),
-        text_color="gray",
+    machine_entry = ctk.CTkEntry(
+        code_frame, width=200, font=ctk.CTkFont(family="Courier", size=12),
     )
-    machine_label.pack(side="left", padx=5, pady=8)
+    machine_entry.insert(0, machine_id)
+    machine_entry.configure(state="disabled")
+    machine_entry.pack(side="left", padx=5, pady=8)
+
+    def _copy_machine_id():
+        parent.clipboard_clear()
+        parent.clipboard_append(machine_id)
+        status_label.configure(text="已复制机器码", text_color="green")
+
+    ctk.CTkButton(
+        code_frame, text="复制", width=50, command=_copy_machine_id,
+    ).pack(side="left", padx=5, pady=8)
 
     # 密钥输入
     key_entry = ctk.CTkEntry(
@@ -154,27 +164,39 @@ def _show_license_dialog(parent, machine_id: str):
 
     # ── 验证逻辑 ──
 
-    def do_verify(_event=None):
-        key = key_entry.get().strip().upper()
-        if not key:
-            status_label.configure(text="请输入授权密钥")
-            return
-
-        ok, msg = _verify_license(key, machine_id)
+    def on_verify_result(ok: bool, msg: str, key: str):
         if ok:
-            # 写入 .license 文件
-            license_path = _get_license_path()
-            with open(license_path, 'w', encoding='utf-8') as f:
-                f.write(key)
+            try:
+                license_path = _get_license_path()
+                with open(license_path, 'w', encoding='utf-8') as f:
+                    f.write(key)
+            except OSError:
+                status_label.configure(text="写入授权文件失败", text_color="red")
+                verify_btn.configure(state="normal", text="验 证")
+                return
             dialog.destroy()
         else:
             attempts["count"] += 1
             remaining = 3 - attempts["count"]
             if remaining <= 0:
                 sys.exit(0)
-            status_label.configure(
-                text=f"{msg}（剩余 {remaining} 次尝试）"
-            )
+            status_label.configure(text=f"{msg}（剩余 {remaining} 次尝试）", text_color="red")
+            verify_btn.configure(state="normal", text="验 证")
+
+    def do_verify(_event=None):
+        key = key_entry.get().strip().upper()
+        if not key:
+            status_label.configure(text="请输入授权密钥", text_color="red")
+            return
+
+        verify_btn.configure(state="disabled", text="验证中...")
+        status_label.configure(text="正在验证...", text_color="gray")
+
+        def _run():
+            ok, msg = _verify_license(key, machine_id)
+            dialog.after(0, lambda: on_verify_result(ok, msg, key))
+
+        threading.Thread(target=_run, daemon=True).start()
 
     key_entry.bind("<Return>", do_verify)
 
@@ -207,7 +229,7 @@ def check_license(parent):
         try:
             with open(license_path, 'r', encoding='utf-8') as f:
                 saved_key = f.read().strip()
-            if saved_key:
+            if saved_key and re.match(r'^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$', saved_key):
                 ok, _ = _verify_license(saved_key, machine_id)
                 if ok:
                     return
