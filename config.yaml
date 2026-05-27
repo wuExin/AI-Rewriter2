@@ -2,9 +2,20 @@ output:
   output_dir: ./output
 yuanbao:
   opencli_path: opencli/dist/main.js
-  search: false
-  think: true
   timeout: 600
-  # 请求延迟设置（分钟），用于防止封号
+  think: true
+  search: false
   delay_min: 1
   delay_max: 15
+zhipu:
+  api_key: 203e6eb967864f89a36724fcde961041.y3TPy7eCZRtIzVeS
+  model: glm-4-plus
+  timeout: 600
+  delay_min: 0
+  delay_max: 0
+deepseek:
+  api_key: sk-4ee1a17d0d2f47009a5fa1379e582fc9
+  model: deepseek-reasoner
+  timeout: 600
+  delay_min: 0
+  delay_max: 0
