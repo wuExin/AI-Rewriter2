@@ -145,6 +145,43 @@ class DoubaoImageGenerator:
         except Exception:
             pass
 
+    @staticmethod
+    def _is_logged_in(driver) -> bool:
+        """检查是否已登录"""
+        try:
+            avatars = driver.find_elements(By.CSS_SELECTOR,
+                '[class*="userAvatar"], [class*="UserAvatar"], [class*="avatar"][class*="header"]')
+            for av in avatars:
+                if av.is_displayed():
+                    return True
+            login_btns = driver.find_elements(By.XPATH,
+                '//span[contains(text(),"登录") and not(contains(text(),"下载"))]')
+            for btn in login_btns:
+                if btn.is_displayed() and btn.text.strip() == "登录":
+                    return False
+            for c in driver.get_cookies():
+                if 'session_id' in c['name'].lower() or 'passport' in c['name'].lower():
+                    return True
+            return False
+        except Exception:
+            return False
+
+    def _wait_for_login(self, driver, timeout=120) -> bool:
+        """等待用户完成登录"""
+        time.sleep(5)
+        if self._is_logged_in(driver):
+            logger.info("[豆包生图] 已检测到登录状态")
+            return True
+        logger.warning(f"[豆包生图] 未登录，请在浏览器中手动登录（最长等待 {timeout} 秒）...")
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self._is_logged_in(driver):
+                logger.info("[豆包生图] 登录成功！")
+                self._dismiss_modals(driver)
+                return True
+            time.sleep(3)
+        return False
+
     def _open_doubao(self, driver):
         driver.get("https://www.doubao.com/chat/")
         WebDriverWait(driver, 30).until(
@@ -152,6 +189,10 @@ class DoubaoImageGenerator:
         )
         time.sleep(8)
         self._dismiss_modals(driver)
+
+        if not self._wait_for_login(driver):
+            raise RuntimeError("豆包登录超时，请重新运行并手动登录")
+
         driver.execute_script(WATERMARK_REMOVER_SCRIPT)
 
     def _send_prompt(self, driver, prompt: str):
