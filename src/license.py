@@ -15,7 +15,7 @@ import uuid
 import customtkinter as ctk
 import requests
 
-SERVER_URL = "http://47.103.28.238:8080"
+SERVER_URL = "http://49.51.75.21:8080"
 
 
 # ─── 机器指纹 ───────────────────────────────────────────────
@@ -91,21 +91,16 @@ def _show_license_dialog(parent, machine_id: str):
 
     dialog = ctk.CTkToplevel(parent)
     dialog.title("授权验证")
-    dialog.geometry("450x320")
+    dialog.geometry("450x340")
     dialog.resizable(False, False)
-    dialog.transient(parent)
 
-    # 居中于父窗口
+    # 居中于屏幕
     dialog.update_idletasks()
-    pw = parent.winfo_width()
-    ph = parent.winfo_height()
-    px = parent.winfo_x()
-    py = parent.winfo_y()
-    dw = dialog.winfo_width()
-    dh = dialog.winfo_height()
-    x = px + (pw - dw) // 2
-    y = py + (ph - dh) // 2
-    dialog.geometry(f"+{x}+{y}")
+    sw = dialog.winfo_screenwidth()
+    sh = dialog.winfo_screenheight()
+    x = (sw - 450) // 2
+    y = (sh - 340) // 2
+    dialog.geometry(f"450x340+{x}+{y}")
 
     # 关闭按钮直接退出
     dialog.protocol("WM_DELETE_WINDOW", lambda: sys.exit(0))
@@ -164,24 +159,30 @@ def _show_license_dialog(parent, machine_id: str):
 
     # ── 验证逻辑 ──
 
-    def on_verify_result(ok: bool, msg: str, key: str):
-        if ok:
-            try:
-                license_path = _get_license_path()
-                with open(license_path, 'w', encoding='utf-8') as f:
-                    f.write(key)
-            except OSError:
-                status_label.configure(text="写入授权文件失败", text_color="red")
+    result_holder = {"result": None}
+
+    def _poll_result():
+        if result_holder["result"] is not None:
+            ok, msg, key = result_holder["result"]
+            if ok:
+                try:
+                    license_path = _get_license_path()
+                    with open(license_path, 'w', encoding='utf-8') as f:
+                        f.write(key)
+                except OSError:
+                    status_label.configure(text="写入授权文件失败", text_color="red")
+                    verify_btn.configure(state="normal", text="验 证")
+                    return
+                dialog.destroy()
+            else:
+                attempts["count"] += 1
+                remaining = 3 - attempts["count"]
+                if remaining <= 0:
+                    sys.exit(0)
+                status_label.configure(text=f"{msg}（剩余 {remaining} 次尝试）", text_color="red")
                 verify_btn.configure(state="normal", text="验 证")
-                return
-            dialog.destroy()
-        else:
-            attempts["count"] += 1
-            remaining = 3 - attempts["count"]
-            if remaining <= 0:
-                sys.exit(0)
-            status_label.configure(text=f"{msg}（剩余 {remaining} 次尝试）", text_color="red")
-            verify_btn.configure(state="normal", text="验 证")
+            return
+        dialog.after(100, _poll_result)
 
     def do_verify(_event=None):
         key = key_entry.get().strip().upper()
@@ -191,12 +192,14 @@ def _show_license_dialog(parent, machine_id: str):
 
         verify_btn.configure(state="disabled", text="验证中...")
         status_label.configure(text="正在验证...", text_color="gray")
+        result_holder["result"] = None
 
         def _run():
             ok, msg = _verify_license(key, machine_id)
-            dialog.after(0, lambda: on_verify_result(ok, msg, key))
+            result_holder["result"] = (ok, msg, key)
 
         threading.Thread(target=_run, daemon=True).start()
+        dialog.after(100, _poll_result)
 
     key_entry.bind("<Return>", do_verify)
 
