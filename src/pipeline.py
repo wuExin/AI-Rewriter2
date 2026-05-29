@@ -979,7 +979,7 @@ class RewritePipeline:
 
         try:
             # ── 第 0 步：抓取原文 ──
-            self._log(f"[1/4] 正在抓取文章: {url}", "info")
+            self._log(f"[1/5] 正在抓取文章: {url}", "info")
             fetch_result = await self.fetcher.fetch_from_url(url)
             title = fetch_result.get("title", "未知标题")
             article_content = fetch_result.get("content", "")
@@ -996,14 +996,14 @@ class RewritePipeline:
             await self.yuanbao.new_conversation()
 
             # ── 第 1 步：分析文章 ──
-            self._log("[2/4] 正在分析文章...", "info")
+            self._log("[2/5] 正在分析文章...", "info")
             prompt_analyze = Prompts.build_analyze(article_content)
             analysis = await self.yuanbao.ask(prompt_analyze, timeout=600, step="1_分析")
             result["analysis"] = analysis
             self._log("[OK] 分析完成", "success")
 
             # ── 第 2 步：改写文章 ──
-            self._log("[3/4] 正在改写文章（预计3-10分钟）...", "info")
+            self._log("[3/5] 正在改写文章（预计3-10分钟）...", "info")
             # 直接从 src/prompts.py 读取
             prompt_rewrite = Prompts.build_rewrite(title)
             article = await self.yuanbao.ask(prompt_rewrite, timeout=600, step="2_改写")
@@ -1028,7 +1028,7 @@ class RewritePipeline:
             self._log(f"[OK] 改写完成（{validation['word_count']}字）", "success")
 
             # ── 第 3 步：生成标题 ──
-            self._log("[4/4] 正在生成标题...", "info")
+            self._log("[4/5] 正在生成标题...", "info")
             prompt_titles = Prompts.build_titles(title)
             titles_response = await self.yuanbao.ask(prompt_titles, timeout=300, step="3_标题")
             titles = TitleValidator.parse_titles(titles_response)
