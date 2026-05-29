@@ -14,6 +14,7 @@ from .zhipu import ZhipuClient
 from .deepseek import DeepSeekClient
 from .prompts import Prompts
 from .validator import ArticleValidator, TitleValidator
+from .image_gen import DoubaoImageGenerator
 from .formatter import OutputFormatter
 from .fetcher import SmartFetcher
 
@@ -972,6 +973,7 @@ class RewritePipeline:
             "titles": None,
             "word_count": 0,
             "output_file": None,
+            "image_path": None,
             "error": None,
         }
 
@@ -1033,6 +1035,25 @@ class RewritePipeline:
             result["titles"] = titles
             self._log(f"[OK] 生成 {len(titles)} 个标题", "success")
 
+            # ── 第 4 步：豆包生图 ──
+            image_path = None
+            image_gen_cfg = self.config.get("image_gen", {})
+            if image_gen_cfg.get("enabled", False):
+                self._log("[5/5] 正在生成封面图...", "info")
+                try:
+                    gen = DoubaoImageGenerator(
+                        output_dir=self.output_dir,
+                        chromedriver_dir=image_gen_cfg.get("chromedriver_dir", "./chromedriver"),
+                        timeout=image_gen_cfg.get("timeout", 120),
+                    )
+                    image_path = gen.generate(title)
+                    if image_path:
+                        self._log(f"[OK] 封面图已保存: {image_path}", "success")
+                    else:
+                        self._log("[WARN] 封面图生成失败，跳过", "warning")
+                except Exception as e:
+                    self._log(f"[WARN] 封面图生成异常: {e}", "warning")
+
             # ── 保存 ──
             safe_title = re.sub(r'[<>:"/\\|?*]', '_', title)
             output_file = f"{self.output_dir}/{safe_title}_改写.docx"
@@ -1045,6 +1066,7 @@ class RewritePipeline:
             )
 
             result["output_file"] = output_file
+            result["image_path"] = image_path
             result["success"] = True
             self._log(f"[DONE] 完成！已保存: {output_file}", "success")
 
