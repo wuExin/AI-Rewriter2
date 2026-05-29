@@ -990,20 +990,39 @@ class RewritePipeline:
 
             self._log(f"[OK] 抓取成功: {title[:30]}...（{len(article_content)}字）", "success")
 
+            # ── 豆包生图 ──
+            image_path = None
+            image_gen_cfg = self.config.get("image_gen", {})
+            if image_gen_cfg.get("enabled", False):
+                self._log("[2/5] 正在生成封面图...", "info")
+                try:
+                    gen = DoubaoImageGenerator(
+                        output_dir=self.output_dir,
+                        chromedriver_dir=image_gen_cfg.get("chromedriver_dir", "./chromedriver"),
+                        timeout=image_gen_cfg.get("timeout", 120),
+                    )
+                    image_path = gen.generate(title)
+                    if image_path:
+                        self._log(f"[OK] 封面图已保存: {image_path}", "success")
+                    else:
+                        self._log("[WARN] 封面图生成失败，跳过", "warning")
+                except Exception as e:
+                    self._log(f"[WARN] 封面图生成异常: {e}", "warning")
+
             # ── 新建对话 ──
             self._log("[INFO] 新建元宝对话...", "info")
             self.yuanbao.reset()
             await self.yuanbao.new_conversation()
 
             # ── 第 1 步：分析文章 ──
-            self._log("[2/5] 正在分析文章...", "info")
+            self._log("[3/5] 正在分析文章...", "info")
             prompt_analyze = Prompts.build_analyze(article_content)
             analysis = await self.yuanbao.ask(prompt_analyze, timeout=600, step="1_分析")
             result["analysis"] = analysis
             self._log("[OK] 分析完成", "success")
 
             # ── 第 2 步：改写文章 ──
-            self._log("[3/5] 正在改写文章（预计3-10分钟）...", "info")
+            self._log("[4/5] 正在改写文章（预计3-10分钟）...", "info")
             # 直接从 src/prompts.py 读取
             prompt_rewrite = Prompts.build_rewrite(title)
             article = await self.yuanbao.ask(prompt_rewrite, timeout=600, step="2_改写")
@@ -1028,31 +1047,12 @@ class RewritePipeline:
             self._log(f"[OK] 改写完成（{validation['word_count']}字）", "success")
 
             # ── 第 3 步：生成标题 ──
-            self._log("[4/5] 正在生成标题...", "info")
+            self._log("[5/5] 正在生成标题...", "info")
             prompt_titles = Prompts.build_titles(title)
             titles_response = await self.yuanbao.ask(prompt_titles, timeout=300, step="3_标题")
             titles = TitleValidator.parse_titles(titles_response)
             result["titles"] = titles
             self._log(f"[OK] 生成 {len(titles)} 个标题", "success")
-
-            # ── 第 4 步：豆包生图 ──
-            image_path = None
-            image_gen_cfg = self.config.get("image_gen", {})
-            if image_gen_cfg.get("enabled", False):
-                self._log("[5/5] 正在生成封面图...", "info")
-                try:
-                    gen = DoubaoImageGenerator(
-                        output_dir=self.output_dir,
-                        chromedriver_dir=image_gen_cfg.get("chromedriver_dir", "./chromedriver"),
-                        timeout=image_gen_cfg.get("timeout", 120),
-                    )
-                    image_path = gen.generate(title)
-                    if image_path:
-                        self._log(f"[OK] 封面图已保存: {image_path}", "success")
-                    else:
-                        self._log("[WARN] 封面图生成失败，跳过", "warning")
-                except Exception as e:
-                    self._log(f"[WARN] 封面图生成异常: {e}", "warning")
 
             # ── 保存 ──
             safe_title = re.sub(r'[<>:"/\\|?*]', '_', title)
