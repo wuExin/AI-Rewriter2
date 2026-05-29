@@ -155,23 +155,30 @@ class DoubaoImageGenerator:
         driver.execute_script(WATERMARK_REMOVER_SCRIPT)
 
     def _send_prompt(self, driver, prompt: str):
-        self._dismiss_modals(driver)
+        for attempt in range(3):
+            try:
+                self._dismiss_modals(driver)
+                textarea = WebDriverWait(driver, 15).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, "textarea.semi-input-textarea"))
+                )
+                textarea.click()
+                time.sleep(0.5)
+                textarea.clear()
+                textarea.send_keys(prompt)
+                time.sleep(0.5)
 
-        textarea = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "textarea.semi-input-textarea"))
-        )
-        textarea.click()
-        time.sleep(0.3)
-        textarea.send_keys(prompt)
-        time.sleep(0.5)
-
-        try:
-            wrapper = driver.find_element(By.CSS_SELECTOR, '.send-btn-wrapper')
-            wrapper.find_element(By.TAG_NAME, 'button').click()
-        except Exception:
-            textarea.send_keys(Keys.ENTER)
-
-        time.sleep(1)
+                try:
+                    wrapper = driver.find_element(By.CSS_SELECTOR, '.send-btn-wrapper')
+                    wrapper.find_element(By.TAG_NAME, 'button').click()
+                except Exception:
+                    textarea.send_keys(Keys.ENTER)
+                time.sleep(1)
+                return
+            except Exception:
+                if attempt < 2:
+                    time.sleep(3)
+                else:
+                    raise
 
     def _wait_for_images(self, driver) -> list:
         deadline = time.time() + self.timeout
