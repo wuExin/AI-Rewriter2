@@ -19,3 +19,7 @@ deepseek:
   timeout: 600
   delay_min: 0
   delay_max: 0
+image_gen:
+  enabled: true
+  chromedriver_dir: ./chromedriver
+  timeout: 120
