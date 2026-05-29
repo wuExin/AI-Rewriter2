@@ -1,0 +1,218 @@
+"""
+豆包生图模块
+通过 Selenium 自动化调用豆包网页版生图，JS 注入去水印，下载无水印原图
+"""
+import os
+import re
+import time
+import random
+import requests
+
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, WebDriverException
+from loguru import logger
+
+WATERMARK_REMOVER_SCRIPT = """
+(function(){
+    'use strict';
+    function findAllKeysInJson(obj, key) {
+        const results = [];
+        function search(current) {
+            if (current && typeof current === 'object') {
+                if (!Array.isArray(current) &&
+                    Object.prototype.hasOwnProperty.call(current, key)) {
+                    results.push(current[key]);
+                }
+                const items = Array.isArray(current) ? current : Object.values(current);
+                for (const item of items) { search(item); }
+            }
+        }
+        search(obj);
+        return results;
+    }
+    let _parse = JSON.parse;
+    JSON.parse = function(data) {
+        let jsonData = _parse(data);
+        if (!data.match('creations')) return jsonData;
+        let creations = findAllKeysInJson(jsonData, 'creations');
+        if (creations.length > 0) {
+            creations.forEach((creation) => {
+                creation.map((item) => {
+                    const rawUrl = item.image.image_ori_raw.url;
+                    item.image.image_ori.url = rawUrl;
+                    return item;
+                });
+            });
+        }
+        return jsonData;
+    };
+})();
+"""
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/137.0.7151.120 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/137.0.7151.120 Safari/537.36 Edg/114.0.1823.67",
+]
+
+
+class DoubaoImageGenerator:
+    """豆包生图生成器"""
+
+    def __init__(self, output_dir: str, chromedriver_dir: str = "./chromedriver", timeout: int = 120):
+        self.output_dir = output_dir
+        self.chromedriver_dir = os.path.abspath(chromedriver_dir)
+        self.timeout = timeout
+        self.user_data_dir = os.path.join(self.chromedriver_dir, "user_data")
+
+        os.makedirs(self.output_dir, exist_ok=True)
+        os.makedirs(self.user_data_dir, exist_ok=True)
+
+    def generate(self, title: str, filename: str = None) -> str | None:
+        if not filename:
+            safe_title = re.sub(r'[<>:"/\\|?*]', '_', title[:50])
+            filename = f"{safe_title}_封面.png"
+
+        prompt = (
+            f"根据下面标题，要求只生成一张照片，要求符合标题大意，"
+            f"影视化场景，亚洲人，照片中不要出现文字，尺寸1200*800\n"
+            f"标题：【{title}】"
+        )
+
+        driver = None
+        try:
+            driver = self._create_driver()
+            self._open_doubao(driver)
+            self._send_prompt(driver, prompt)
+            image_urls = self._wait_for_images(driver)
+
+            if not image_urls:
+                logger.warning("[豆包生图] 未检测到生成的图片")
+                return None
+
+            filepath = os.path.join(self.output_dir, filename)
+            saved = self._download_first(driver, image_urls, filepath)
+
+            if saved:
+                logger.info(f"[豆包生图] 封面图已保存: {filepath}")
+                return filepath
+            return None
+
+        except WebDriverException as e:
+            logger.warning(f"[豆包生图] 浏览器错误: {str(e)[:200]}")
+            return None
+        except Exception as e:
+            logger.warning(f"[豆包生图] 生成失败: {e}")
+            return None
+        finally:
+            if driver:
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+
+    def _create_driver(self):
+        options = Options()
+        options.add_argument(f"--user-data-dir={self.user_data_dir}")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--window-size=1920,1080")
+        options.add_argument("--start-maximized")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_argument(f"user-agent={random.choice(USER_AGENTS)}")
+
+        cd_path = os.path.join(self.chromedriver_dir, "chromedriver.exe")
+        if os.path.exists(cd_path):
+            return webdriver.Chrome(service=Service(cd_path), options=options)
+        return webdriver.Chrome(options=options)
+
+    @staticmethod
+    def _dismiss_modals(driver):
+        try:
+            if driver.find_elements(By.CSS_SELECTOR, ".semi-modal-wrap"):
+                driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
+                time.sleep(0.5)
+        except Exception:
+            pass
+
+    def _open_doubao(self, driver):
+        driver.get("https://www.doubao.com/chat/")
+        WebDriverWait(driver, 30).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "textarea.semi-input-textarea"))
+        )
+        time.sleep(8)
+        self._dismiss_modals(driver)
+        driver.execute_script(WATERMARK_REMOVER_SCRIPT)
+
+    def _send_prompt(self, driver, prompt: str):
+        self._dismiss_modals(driver)
+
+        textarea = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "textarea.semi-input-textarea"))
+        )
+        textarea.click()
+        time.sleep(0.3)
+        textarea.send_keys(prompt)
+        time.sleep(0.5)
+
+        try:
+            wrapper = driver.find_element(By.CSS_SELECTOR, '.send-btn-wrapper')
+            wrapper.find_element(By.TAG_NAME, 'button').click()
+        except Exception:
+            textarea.send_keys(Keys.ENTER)
+
+        time.sleep(1)
+
+    def _wait_for_images(self, driver) -> list:
+        deadline = time.time() + self.timeout
+        while time.time() < deadline:
+            urls = self._get_image_urls(driver)
+            if urls:
+                time.sleep(5)
+                return self._get_image_urls(driver)
+            time.sleep(5)
+        return []
+
+    @staticmethod
+    def _get_image_urls(driver) -> list:
+        try:
+            return driver.execute_script("""
+                var imgs = document.querySelectorAll('img');
+                var r = [], seen = {};
+                for (var i = 0; i < imgs.length; i++) {
+                    var s = imgs[i].src || '';
+                    if (s.indexOf('flow-imagex') !== -1 && !seen[s]) { seen[s] = 1; r.push(s); }
+                }
+                return r;
+            """) or []
+        except Exception:
+            return []
+
+    @staticmethod
+    def _download_first(driver, urls: list, filepath: str) -> bool:
+        if not urls:
+            return False
+
+        session = requests.Session()
+        for c in driver.get_cookies():
+            session.cookies.set(c['name'], c['value'])
+
+        try:
+            resp = session.get(urls[0], timeout=30, headers={'Referer': 'https://www.doubao.com/'})
+            if resp.status_code == 200 and len(resp.content) > 1000:
+                with open(filepath, 'wb') as f:
+                    f.write(resp.content)
+                return True
+        except Exception as e:
+            logger.warning(f"[豆包生图] 下载失败: {e}")
+        return False
