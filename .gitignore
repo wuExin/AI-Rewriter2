@@ -12,6 +12,7 @@ build/
 # 项目特定
 logs/
 output/
+chromedriver/
 *.rar
 *.docx
 
@@ -32,3 +33,4 @@ Thumbs.db
 answer.txt
 dump_think_dom.mjs
 inspect_dom.mjs
+*.pb
