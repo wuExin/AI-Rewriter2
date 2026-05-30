@@ -1,3 +1,52 @@
+# 管理后台更新部署指南
+
+在已部署授权服务的基础上，更新代码以支持管理网页。
+
+HTML 已嵌入 main.py，需要更新 2 个文件：main.py 和 Dockerfile。
+
+## 操作步骤
+
+### 第 1 步：登录服务器
+
+腾讯云控制台 → 云服务器 → 实例 → 登录 → OrcaTerm
+
+### 第 2 步：更新 Dockerfile
+
+```bash
+cat > Dockerfile << 'EOF'
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY main.py db.py ./
+
+RUN mkdir -p /app/data
+
+EXPOSE 8080
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+EOF
+```
+
+### 第 3 步：更新 main.py
+
+```bash
+cd /opt/license-server
+```
+
+先清空文件：
+```bash
+> main.py
+```
+
+然后分 3 段粘贴（每段单独复制执行）：
+
+**第 1 段：**
+```bash
+cat >> main.py << 'PYEOF'
 """一机一码授权验证服务"""
 import hmac
 import os
@@ -57,6 +106,12 @@ tr:hover { background: #f8f9fa; }
 .toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: #333; color: #fff; padding: 10px 24px; border-radius: 4px; font-size: 14px; z-index: 999; display: none; }
 .hidden { display: none !important; }
 </style>
+PYEOF
+```
+
+**第 2 段：**
+```bash
+cat >> main.py << 'PYEOF'
 </head>
 <body>
 <div id="toast" class="toast"></div>
@@ -102,6 +157,12 @@ function doExport(){fetch('/api/keys',{headers:authHeaders()}).then(function(r){
 </script>
 </body>
 </html>"""
+PYEOF
+```
+
+**第 3 段：**
+```bash
+cat >> main.py << 'PYEOF'
 
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 if not ADMIN_PASSWORD:
@@ -130,7 +191,6 @@ app = FastAPI(title="License Verification Service", lifespan=lifespan)
 
 
 def _generate_key() -> str:
-    """生成 XXXX-XXXX-XXXX-XXXX 格式授权码"""
     parts = [secrets.token_hex(2).upper() for _ in range(4)]
     return "-".join(parts)
 
@@ -168,28 +228,18 @@ def delete_key(key: str, authorization: str = Header(None)):
 
 @app.post("/api/verify")
 def verify(req: VerifyRequest):
-    """验证授权码。首次使用绑定机器码。"""
     key = req.key.strip().upper()
     conn = get_conn()
     try:
-        row = conn.execute(
-            "SELECT * FROM license_keys WHERE license_key = ?", (key,)
-        ).fetchone()
-
+        row = conn.execute("SELECT * FROM license_keys WHERE license_key = ?", (key,)).fetchone()
         if not row:
             return {"ok": False, "msg": "授权码不存在"}
-
         if row["machine_id"] is None:
-            conn.execute(
-                "UPDATE license_keys SET machine_id = ?, activated_at = CURRENT_TIMESTAMP WHERE license_key = ?",
-                (req.machine_id, key),
-            )
+            conn.execute("UPDATE license_keys SET machine_id = ?, activated_at = CURRENT_TIMESTAMP WHERE license_key = ?", (req.machine_id, key))
             conn.commit()
             return {"ok": True, "msg": ""}
-
         if row["machine_id"] != req.machine_id:
             return {"ok": False, "msg": "授权码与机器不匹配"}
-
         return {"ok": True, "msg": ""}
     finally:
         conn.close()
@@ -197,9 +247,7 @@ def verify(req: VerifyRequest):
 
 @app.post("/api/generate")
 def generate(req: GenerateRequest, authorization: str = Header(None)):
-    """批量生成授权码（需要 admin 密码）。"""
     _check_auth(authorization)
-
     keys = []
     conn = get_conn()
     try:
@@ -220,14 +268,30 @@ def generate(req: GenerateRequest, authorization: str = Header(None)):
 
 @app.get("/api/keys")
 def list_keys(authorization: str = Header(None)):
-    """查看所有授权码状态（需要 admin 密码）。"""
     _check_auth(authorization)
-
     conn = get_conn()
     try:
-        rows = conn.execute(
-            "SELECT license_key, machine_id, created_at, activated_at FROM license_keys ORDER BY id DESC"
-        ).fetchall()
+        rows = conn.execute("SELECT license_key, machine_id, created_at, activated_at FROM license_keys ORDER BY id DESC").fetchall()
     finally:
         conn.close()
     return {"ok": True, "keys": [dict(r) for r in rows]}
+PYEOF
+```
+
+### 第 4 步：重新构建并启动
+
+```bash
+cd /opt/license-server
+export ADMIN_PASSWORD="你的密码"
+docker compose up -d --build
+```
+
+### 第 5 步：验证
+
+浏览器打开：
+
+```
+http://49.51.75.21:8080/admin
+```
+
+输入管理密码登录，看到授权码管理页面即为成功。

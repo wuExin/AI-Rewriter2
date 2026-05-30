@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>授权码管理</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #f5f5f5; color: #333; }
+
+/* 登录 */
+.login-wrap { display: flex; justify-content: center; align-items: center; height: 100vh; }
+.login-box { background: #fff; padding: 40px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,.1); width: 360px; }
+.login-box h2 { text-align: center; margin-bottom: 24px; font-size: 20px; }
+.login-box input { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; margin-bottom: 16px; }
+.login-box button { width: 100%; padding: 10px; background: #4a90d9; color: #fff; border: none; border-radius: 4px; font-size: 15px; cursor: pointer; }
+.login-box button:hover { background: #357abd; }
+.login-error { color: #e74c3c; font-size: 13px; margin-bottom: 12px; display: none; }
+
+/* 管理区 */
+.admin-wrap { max-width: 900px; margin: 0 auto; padding: 20px; }
+.admin-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.admin-header h1 { font-size: 22px; }
+.admin-header button { padding: 6px 16px; background: #aaa; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
+.admin-header button:hover { background: #888; }
+
+/* 操作栏 */
+.toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+.toolbar input { width: 70px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+.toolbar button { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+.btn-generate { background: #27ae60; color: #fff; }
+.btn-generate:hover { background: #219a52; }
+.btn-refresh { background: #4a90d9; color: #fff; }
+.btn-refresh:hover { background: #357abd; }
+.btn-export { background: #8e44ad; color: #fff; }
+.btn-export:hover { background: #7d3c98; }
+
+/* 表格 */
+table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 6px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+th, td { padding: 10px 12px; text-align: left; font-size: 13px; border-bottom: 1px solid #eee; }
+th { background: #fafafa; font-weight: 600; color: #666; }
+tr:last-child td { border-bottom: none; }
+tr:hover { background: #f8f9fa; }
+.status-active { color: #27ae60; font-weight: 600; }
+.status-unused { color: #999; }
+
+/* 操作按钮 */
+.btn-copy, .btn-delete { padding: 3px 10px; border: none; border-radius: 3px; cursor: pointer; font-size: 12px; }
+.btn-copy { background: #ecf0f1; color: #333; }
+.btn-copy:hover { background: #dfe6e9; }
+.btn-delete { background: #fff0f0; color: #e74c3c; }
+.btn-delete:hover { background: #fde2e2; }
+
+.empty-row td { text-align: center; color: #999; padding: 40px; }
+
+/* Toast */
+.toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: #333; color: #fff; padding: 10px 24px; border-radius: 4px; font-size: 14px; z-index: 999; display: none; }
+
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div id="toast" class="toast"></div>
+
+<!-- 登录 -->
+<div id="loginPage" class="login-wrap">
+  <div class="login-box">
+    <h2>授权码管理</h2>
+    <div id="loginError" class="login-error">密码错误</div>
+    <input type="password" id="passwordInput" placeholder="请输入管理密码" autofocus>
+    <button onclick="doLogin()">登 录</button>
+  </div>
+</div>
+
+<!-- 管理区 -->
+<div id="adminPage" class="admin-wrap hidden">
+  <div class="admin-header">
+    <h1>授权码管理</h1>
+    <button onclick="doLogout()">退出登录</button>
+  </div>
+
+  <div class="toolbar">
+    <span>生成</span>
+    <input type="number" id="genCount" value="1" min="1" max="100">
+    <span>个</span>
+    <button class="btn-generate" onclick="doGenerate()">生成授权码</button>
+    <button class="btn-refresh" onclick="loadKeys()">刷新</button>
+    <button class="btn-export" onclick="doExport()">导出全部</button>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>授权码</th>
+        <th>状态</th>
+        <th>机器码</th>
+        <th>创建时间</th>
+        <th>激活时间</th>
+        <th>操作</th>
+      </tr>
+    </thead>
+    <tbody id="keyTable">
+      <tr class="empty-row"><td colspan="6">加载中...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+function getToken() { return sessionStorage.getItem('admin_token'); }
+function authHeaders() { return { 'Authorization': 'Bearer ' + getToken(), 'Content-Type': 'application/json' }; }
+
+function showToast(msg, duration) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.display = 'block';
+  setTimeout(function() { t.style.display = 'none'; }, duration || 2000);
+}
+
+// 登录
+function doLogin() {
+  var pwd = document.getElementById('passwordInput').value.trim();
+  if (!pwd) return;
+  fetch('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: pwd })
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (data.ok) {
+      sessionStorage.setItem('admin_token', pwd);
+      document.getElementById('loginPage').classList.add('hidden');
+      document.getElementById('adminPage').classList.remove('hidden');
+      document.getElementById('loginError').style.display = 'none';
+      loadKeys();
+    } else {
+      document.getElementById('loginError').style.display = 'block';
+    }
+  });
+}
+
+document.getElementById('passwordInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') doLogin();
+});
+
+function doLogout() {
+  sessionStorage.removeItem('admin_token');
+  document.getElementById('adminPage').classList.add('hidden');
+  document.getElementById('loginPage').classList.remove('hidden');
+  document.getElementById('passwordInput').value = '';
+}
+
+// 自动登录
+if (getToken()) {
+  fetch('/api/keys', { headers: authHeaders() }).then(function(r) {
+    if (r.ok) {
+      document.getElementById('loginPage').classList.add('hidden');
+      document.getElementById('adminPage').classList.remove('hidden');
+      loadKeys();
+    }
+  });
+}
+
+// 加载授权码列表
+function loadKeys() {
+  fetch('/api/keys', { headers: authHeaders() }).then(function(r) {
+    if (r.status === 401) { doLogout(); return; }
+    return r.json();
+  }).then(function(data) {
+    if (!data || !data.ok) return;
+    var tbody = document.getElementById('keyTable');
+    if (data.keys.length === 0) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="6">暂无授权码</td></tr>';
+      return;
+    }
+    var html = '';
+    data.keys.forEach(function(k) {
+      var active = !!k.machine_id;
+      var statusClass = active ? 'status-active' : 'status-unused';
+      var statusText = active ? '已激活' : '未使用';
+      var copyBtn = active ? '' : '<button class="btn-copy" onclick="copyKey(\'' + k.license_key + '\')">复制</button>';
+      html += '<tr>'
+        + '<td><code>' + k.license_key + '</code></td>'
+        + '<td class="' + statusClass + '">' + statusText + '</td>'
+        + '<td>' + (k.machine_id || '-') + '</td>'
+        + '<td>' + (k.created_at || '-') + '</td>'
+        + '<td>' + (k.activated_at || '-') + '</td>'
+        + '<td>' + copyBtn + ' <button class="btn-delete" onclick="doDelete(\'' + k.license_key + '\')">删除</button></td>'
+        + '</tr>';
+    });
+    tbody.innerHTML = html;
+  });
+}
+
+// 生成
+function doGenerate() {
+  var count = parseInt(document.getElementById('genCount').value) || 1;
+  fetch('/api/generate', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ count: count })
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (data.ok) {
+      showToast('已生成 ' + data.keys.length + ' 个授权码');
+      loadKeys();
+    }
+  });
+}
+
+// 删除
+function doDelete(key) {
+  if (!confirm('确定删除授权码 ' + key + '？')) return;
+  fetch('/api/keys/' + key, {
+    method: 'DELETE',
+    headers: authHeaders()
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (data.ok) {
+      showToast('已删除');
+      loadKeys();
+    }
+  });
+}
+
+// 复制
+function copyKey(key) {
+  navigator.clipboard.writeText(key).then(function() {
+    showToast('已复制: ' + key);
+  });
+}
+
+// 导出
+function doExport() {
+  fetch('/api/keys', { headers: authHeaders() }).then(function(r) { return r.json(); }).then(function(data) {
+    if (!data.ok) return;
+    var text = '授权码\t状态\t机器码\t创建时间\t激活时间\n';
+    data.keys.forEach(function(k) {
+      text += k.license_key + '\t' + (k.machine_id ? '已激活' : '未使用') + '\t' + (k.machine_id || '-') + '\t' + (k.created_at || '-') + '\t' + (k.activated_at || '-') + '\n';
+    });
+    var blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'license_keys_' + new Date().toISOString().slice(0,10) + '.txt';
+    a.click();
+  });
+}
+</script>
+</body>
+</html>
