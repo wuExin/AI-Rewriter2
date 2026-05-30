@@ -128,7 +128,7 @@ class App(ctk.CTk):
 
         self.url_input = ctk.CTkTextbox(self.input_frame, height=180)
         self.url_input.pack(fill="x", padx=10, pady=5)
-        self.url_input.insert("1.0", "https://www.toutiao.com/article/7624543829000995374")
+        self.url_input.insert("1.0", "https://mbd.baidu.com/newspage/data/landingsuper?pageType=1&context=%7B%22nid%22%3A%22news_9513274482372641098%22%7D")
         self.url_input.bind("<FocusIn>", self._clear_placeholder)
         self._placeholder_active = True
 

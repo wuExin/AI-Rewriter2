@@ -6,8 +6,11 @@ import os
 import re
 import time
 import random
-import requests
 
+import cv2
+import numpy as np
+import requests
+from PIL import Image, ImageDraw
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -76,8 +79,8 @@ class DoubaoImageGenerator:
         os.makedirs(self.user_data_dir, exist_ok=True)
 
     def generate(self, title: str, filename: str = None) -> str | None:
+        safe_title = re.sub(r'[<>:"/\\|?*]', '_', title[:50])
         if not filename:
-            safe_title = re.sub(r'[<>:"/\\|?*]', '_', title[:50])
             filename = f"{safe_title}_封面.png"
 
         prompt = (
@@ -98,9 +101,14 @@ class DoubaoImageGenerator:
                 return None
 
             filepath = os.path.join(self.output_dir, filename)
-            saved = self._download_first(driver, image_urls, filepath)
+            saved = self._download_image(driver, image_urls[0], filepath)
 
             if saved:
+                # 保存原图，处理后的图片用新文件名
+                raw_path = os.path.join(self.output_dir, f"{safe_title}_原图.png")
+                Image.open(filepath).save(raw_path)
+                self._remove_watermark(filepath)
+                logger.info(f"[豆包生图] 原图已保存: {raw_path}")
                 logger.info(f"[豆包生图] 封面图已保存: {filepath}")
                 return filepath
             return None
@@ -247,16 +255,25 @@ class DoubaoImageGenerator:
             return []
 
     @staticmethod
-    def _download_first(driver, urls: list, filepath: str) -> bool:
-        if not urls:
-            return False
+    def _download_image(driver, url: str, filepath: str) -> bool:
+        # canvas data URL
+        if url.startswith("data:"):
+            try:
+                import base64
+                data = url.split(",", 1)[1]
+                with open(filepath, "wb") as f:
+                    f.write(base64.b64decode(data))
+                return True
+            except Exception as e:
+                logger.warning(f"[豆包生图] base64保存失败: {e}")
+                return False
 
         session = requests.Session()
         for c in driver.get_cookies():
             session.cookies.set(c['name'], c['value'])
 
         try:
-            resp = session.get(urls[0], timeout=30, headers={'Referer': 'https://www.doubao.com/'})
+            resp = session.get(url, timeout=30, headers={'Referer': 'https://www.doubao.com/'})
             if resp.status_code == 200 and len(resp.content) > 1000:
                 with open(filepath, 'wb') as f:
                     f.write(resp.content)
@@ -264,3 +281,45 @@ class DoubaoImageGenerator:
         except Exception as e:
             logger.warning(f"[豆包生图] 下载失败: {e}")
         return False
+
+    @staticmethod
+    def _remove_watermark(filepath: str):
+        """检测左上角水印区域并裁剪"""
+        try:
+            img = cv2.imdecode(np.fromfile(filepath, dtype=np.uint8), cv2.IMREAD_COLOR)
+            if img is None:
+                return
+            h, w = img.shape[:2]
+
+            # 只扫描左上角 20% 区域（水印固定在左上）
+            lw = int(w * 0.2)
+            scan_h = max(int(h * 0.12), 30)
+            gray = cv2.cvtColor(img[:scan_h, :lw], cv2.COLOR_BGR2GRAY)
+
+            # 每行中像素值 >= 200 的数量（水印像素偏亮）
+            row_bright = [(gray[row] >= 200).sum() for row in range(scan_h)]
+
+            # 水印行特征：有 >= 5 个亮像素
+            watermark_rows = [i for i, c in enumerate(row_bright) if c >= 5]
+            if not watermark_rows:
+                return
+
+            # 分组（间隔 <= 3 行的合并）
+            groups = [[watermark_rows[0]]]
+            for i in range(1, len(watermark_rows)):
+                if watermark_rows[i] - groups[-1][-1] <= 3:
+                    groups[-1].append(watermark_rows[i])
+                else:
+                    groups.append([watermark_rows[i]])
+
+            # 取最长的组
+            longest = max(groups, key=len)
+            watermark_bottom = longest[-1] + 1
+
+            if watermark_bottom > 0 and watermark_bottom < h - 10:
+                cropped = img[watermark_bottom:, :]
+                cv2.imencode('.png', cropped)[1].tofile(filepath)
+                logger.info(f"[豆包生图] 裁剪水印: 去掉顶部 {watermark_bottom} 像素, "
+                            f"原图 {w}x{h} → {w}x{h - watermark_bottom}")
+        except Exception as e:
+            logger.warning(f"[豆包生图] 水印去除失败: {e}")
