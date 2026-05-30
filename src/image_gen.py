@@ -24,6 +24,7 @@ from loguru import logger
 WATERMARK_REMOVER_SCRIPT = """
 (function(){
     'use strict';
+    window.__rawImageUrls = [];
     function findAllKeysInJson(obj, key) {
         const results = [];
         function search(current) {
@@ -49,6 +50,9 @@ WATERMARK_REMOVER_SCRIPT = """
                 creation.map((item) => {
                     const rawUrl = item.image.image_ori_raw.url;
                     item.image.image_ori.url = rawUrl;
+                    if (rawUrl && window.__rawImageUrls.indexOf(rawUrl) === -1) {
+                        window.__rawImageUrls.push(rawUrl);
+                    }
                     return item;
                 });
             });
@@ -127,6 +131,25 @@ class DoubaoImageGenerator:
                     pass
 
     def _create_driver(self):
+        # 清理 Chrome SingletonLock，否则上一个 driver quit 后马上重开会失败
+        import glob
+        lock_patterns = [
+            os.path.join(self.user_data_dir, "SingletonLock"),
+            os.path.join(self.user_data_dir, "SingletonSocket"),
+            os.path.join(self.user_data_dir, "SingletonCookie"),
+        ]
+        for p in lock_patterns:
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
+            except Exception:
+                pass
+        for lock in glob.glob(os.path.join(self.user_data_dir, "lockfile*")):
+            try:
+                os.remove(lock)
+            except Exception:
+                pass
+
         options = Options()
         options.add_argument(f"--user-data-dir={self.user_data_dir}")
         options.add_argument("--no-sandbox")
@@ -140,9 +163,18 @@ class DoubaoImageGenerator:
         options.add_argument(f"user-agent={random.choice(USER_AGENTS)}")
 
         cd_path = os.path.join(self.chromedriver_dir, "chromedriver.exe")
-        if os.path.exists(cd_path):
-            return webdriver.Chrome(service=Service(cd_path), options=options)
-        return webdriver.Chrome(options=options)
+
+        last_err = None
+        for attempt in range(3):
+            try:
+                if os.path.exists(cd_path):
+                    return webdriver.Chrome(service=Service(cd_path), options=options)
+                return webdriver.Chrome(options=options)
+            except Exception as e:
+                last_err = e
+                if attempt < 2:
+                    time.sleep(3)
+        raise last_err
 
     @staticmethod
     def _dismiss_modals(driver):
@@ -242,6 +274,9 @@ class DoubaoImageGenerator:
     @staticmethod
     def _get_image_urls(driver) -> list:
         try:
+            raw = driver.execute_script("return window.__rawImageUrls || [];")
+            if raw:
+                return raw
             return driver.execute_script("""
                 var imgs = document.querySelectorAll('img');
                 var r = [], seen = {};
