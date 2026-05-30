@@ -800,6 +800,7 @@ class ImitationPipeline:
                 "titles": list,
                 "word_count": int,
                 "output_file": str,
+                "image_path": str,
                 "error": str
             }
         """
@@ -812,12 +813,13 @@ class ImitationPipeline:
             "titles": None,
             "word_count": 0,
             "output_file": None,
+            "image_path": None,
             "error": None,
         }
 
         try:
             # ── 第 0 步：抓取原文（仿写流程在付费墙处截断，只取可见部分）──
-            self._log(f"[1/4] 正在抓取文章: {url}", "info")
+            self._log(f"[1/5] 正在抓取文章: {url}", "info")
             fetch_result = await self.fetcher.fetch_from_url(url, truncate_at_paywall=True)
             title = fetch_result.get("title", "未知标题")
             article_content = fetch_result.get("content", "")
@@ -828,13 +830,37 @@ class ImitationPipeline:
 
             self._log(f"[OK] 抓取成功: {title[:30]}...（{len(article_content)}字）", "success")
 
+            # ── 创建文章专属目录 ──
+            safe_title = re.sub(r'[<>:"/\\|?*]', '_', title)
+            article_dir = os.path.join(self.output_dir, safe_title)
+            os.makedirs(article_dir, exist_ok=True)
+
+            # ── 豆包生图 ──
+            image_path = None
+            image_gen_cfg = self.config.get("image_gen", {})
+            if image_gen_cfg.get("enabled", False):
+                self._log("[2/5] 正在生成封面图...", "info")
+                try:
+                    gen = DoubaoImageGenerator(
+                        output_dir=article_dir,
+                        chromedriver_dir=image_gen_cfg.get("chromedriver_dir", "./chromedriver"),
+                        timeout=image_gen_cfg.get("timeout", 120),
+                    )
+                    image_path = gen.generate(title)
+                    if image_path:
+                        self._log(f"[OK] 封面图已保存: {image_path}", "success")
+                    else:
+                        self._log("[WARN] 封面图生成失败，跳过", "warning")
+                except Exception as e:
+                    self._log(f"[WARN] 封面图生成异常: {e}", "warning")
+
             # ── 新建对话 ──
             self._log("[INFO] 新建对话...", "info")
             self.yuanbao.reset()
             await self.yuanbao.new_conversation()
 
             # ── 第 1 步：仿写改写 ──
-            self._log("[2/4] 正在仿写改写文章...", "info")
+            self._log("[3/5] 正在仿写改写文章...", "info")
             prompt_step1 = Prompts.build_imitation_step1(title, article_content)
             rewritten = await self.yuanbao.ask(prompt_step1, timeout=1200, step="imitation_1_仿写")
             rewritten = self._clean_article(rewritten)
@@ -842,7 +868,7 @@ class ImitationPipeline:
             self._log(f"[OK] 仿写完成（{self._count_chinese_chars(rewritten)}字）", "success")
 
             # ── 第 2 步：续写结局 ──
-            self._log("[3/4] 正在续写结局...", "info")
+            self._log("[4/5] 正在续写结局...", "info")
             prompt_step2 = Prompts.build_imitation_step2()
             ending = await self.yuanbao.ask(prompt_step2, timeout=1200, step="imitation_2_续写")
             ending = self._clean_article(ending)
@@ -850,7 +876,7 @@ class ImitationPipeline:
             self._log(f"[OK] 续写完成（{self._count_chinese_chars(ending)}字）", "success")
 
             # ── 第 3 步：生成标题 ──
-            self._log("[4/4] 正在生成标题...", "info")
+            self._log("[5/5] 正在生成标题...", "info")
             prompt_step3 = Prompts.build_imitation_step3(title)
             titles_response = await self.yuanbao.ask(prompt_step3, timeout=300, step="imitation_3_标题")
             titles = [line.strip() for line in titles_response.split("\n") if line.strip() and len(line.strip()) > 10]
@@ -864,8 +890,7 @@ class ImitationPipeline:
             full_article += rewritten + "\n\n【付费处】\n\n" + ending
             result["word_count"] = self._count_chinese_chars(full_article)
 
-            safe_title = re.sub(r'[<>:"/\\|?*]', '_', title[:50])
-            output_file = f"{self.output_dir}/{safe_title}_仿写文.docx"
+            output_file = os.path.join(article_dir, f"{safe_title}_仿写文.docx")
 
             self.formatter.save_emotion_article(
                 title=title,
@@ -874,6 +899,7 @@ class ImitationPipeline:
             )
 
             result["output_file"] = output_file
+            result["image_path"] = image_path
             result["success"] = True
             self._log(f"[DONE] 完成！已保存: {output_file}", "success")
 
@@ -974,13 +1000,12 @@ class RewritePipeline:
             "titles": None,
             "word_count": 0,
             "output_file": None,
-            "image_path": None,
             "error": None,
         }
 
         try:
             # ── 第 0 步：抓取原文 ──
-            self._log(f"[1/5] 正在抓取文章: {url}", "info")
+            self._log(f"[1/4] 正在抓取文章: {url}", "info")
             fetch_result = await self.fetcher.fetch_from_url(url)
             title = fetch_result.get("title", "未知标题")
             article_content = fetch_result.get("content", "")
@@ -996,39 +1021,20 @@ class RewritePipeline:
             article_dir = os.path.join(self.output_dir, safe_title)
             os.makedirs(article_dir, exist_ok=True)
 
-            # ── 豆包生图 ──
-            image_path = None
-            image_gen_cfg = self.config.get("image_gen", {})
-            if image_gen_cfg.get("enabled", False):
-                self._log("[2/5] 正在生成封面图...", "info")
-                try:
-                    gen = DoubaoImageGenerator(
-                        output_dir=article_dir,
-                        chromedriver_dir=image_gen_cfg.get("chromedriver_dir", "./chromedriver"),
-                        timeout=image_gen_cfg.get("timeout", 120),
-                    )
-                    image_path = gen.generate(title)
-                    if image_path:
-                        self._log(f"[OK] 封面图已保存: {image_path}", "success")
-                    else:
-                        self._log("[WARN] 封面图生成失败，跳过", "warning")
-                except Exception as e:
-                    self._log(f"[WARN] 封面图生成异常: {e}", "warning")
-
             # ── 新建对话 ──
             self._log("[INFO] 新建元宝对话...", "info")
             self.yuanbao.reset()
             await self.yuanbao.new_conversation()
 
             # ── 第 1 步：分析文章 ──
-            self._log("[3/5] 正在分析文章...", "info")
+            self._log("[2/4] 正在分析文章...", "info")
             prompt_analyze = Prompts.build_analyze(article_content)
             analysis = await self.yuanbao.ask(prompt_analyze, timeout=600, step="1_分析")
             result["analysis"] = analysis
             self._log("[OK] 分析完成", "success")
 
             # ── 第 2 步：改写文章 ──
-            self._log("[4/5] 正在改写文章（预计3-10分钟）...", "info")
+            self._log("[3/4] 正在改写文章（预计3-10分钟）...", "info")
             # 直接从 src/prompts.py 读取
             prompt_rewrite = Prompts.build_rewrite(title)
             article = await self.yuanbao.ask(prompt_rewrite, timeout=600, step="2_改写")
@@ -1053,7 +1059,7 @@ class RewritePipeline:
             self._log(f"[OK] 改写完成（{validation['word_count']}字）", "success")
 
             # ── 第 3 步：生成标题 ──
-            self._log("[5/5] 正在生成标题...", "info")
+            self._log("[4/4] 正在生成标题...", "info")
             prompt_titles = Prompts.build_titles(title)
             titles_response = await self.yuanbao.ask(prompt_titles, timeout=300, step="3_标题")
             titles = TitleValidator.parse_titles(titles_response)
@@ -1071,7 +1077,6 @@ class RewritePipeline:
             )
 
             result["output_file"] = output_file
-            result["image_path"] = image_path
             result["success"] = True
             self._log(f"[DONE] 完成！已保存: {output_file}", "success")
 
