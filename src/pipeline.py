@@ -3,6 +3,7 @@
 抓取 → new → ask(分析) → ask(改写) → ask(标题) → 校验 → 保存
 """
 import asyncio
+import os
 import random
 import re
 from pathlib import Path
@@ -990,6 +991,11 @@ class RewritePipeline:
 
             self._log(f"[OK] 抓取成功: {title[:30]}...（{len(article_content)}字）", "success")
 
+            # ── 创建文章专属目录 ──
+            safe_title = re.sub(r'[<>:"/\\|?*]', '_', title)
+            article_dir = os.path.join(self.output_dir, safe_title)
+            os.makedirs(article_dir, exist_ok=True)
+
             # ── 豆包生图 ──
             image_path = None
             image_gen_cfg = self.config.get("image_gen", {})
@@ -997,7 +1003,7 @@ class RewritePipeline:
                 self._log("[2/5] 正在生成封面图...", "info")
                 try:
                     gen = DoubaoImageGenerator(
-                        output_dir=self.output_dir,
+                        output_dir=article_dir,
                         chromedriver_dir=image_gen_cfg.get("chromedriver_dir", "./chromedriver"),
                         timeout=image_gen_cfg.get("timeout", 120),
                     )
@@ -1055,8 +1061,7 @@ class RewritePipeline:
             self._log(f"[OK] 生成 {len(titles)} 个标题", "success")
 
             # ── 保存 ──
-            safe_title = re.sub(r'[<>:"/\\|?*]', '_', title)
-            output_file = f"{self.output_dir}/{safe_title}_改写.docx"
+            output_file = os.path.join(article_dir, f"{safe_title}_改写.docx")
 
             self.formatter.save_to_file(
                 original_url=url,
