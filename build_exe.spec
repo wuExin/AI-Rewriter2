@@ -9,7 +9,6 @@ current_dir = os.path.dirname(os.path.abspath(SPEC))
 
 # 收集所有需要的数据文件
 datas = [
-    (os.path.join(current_dir, 'config.yaml'), '.'),
     (os.path.join(current_dir, 'src'), 'src'),
 ]
 

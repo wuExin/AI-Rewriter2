@@ -20,7 +20,12 @@ from .formatter import OutputFormatter
 from .fetcher import SmartFetcher
 
 
-CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
+def _get_base_dir() -> Path:
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).parent
+    return Path(__file__).parent.parent
+
+CONFIG_PATH = _get_base_dir() / "config.yaml"
 
 
 def load_config() -> dict:

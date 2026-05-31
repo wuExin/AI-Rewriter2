@@ -19,7 +19,12 @@ from .yuanbao import YuanbaoClient
 from .zhipu import ZhipuClient
 from .deepseek import DeepSeekClient
 
-CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
+def _get_base_dir() -> Path:
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).parent
+    return Path(__file__).parent.parent
+
+CONFIG_PATH = _get_base_dir() / "config.yaml"
 
 
 def load_config() -> dict:

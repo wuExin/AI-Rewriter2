@@ -1,0 +1,25 @@
+output:
+  output_dir: ./output
+yuanbao:
+  opencli_path: opencli/dist/main.js
+  timeout: 600
+  think: true
+  search: false
+  delay_min: 1
+  delay_max: 15
+zhipu:
+  api_key: 在这里填入你的智谱API密钥
+  model: glm-4-plus
+  timeout: 600
+  delay_min: 0
+  delay_max: 0
+deepseek:
+  api_key: 在这里填入你的DeepSeek API密钥
+  model: deepseek-reasoner
+  timeout: 600
+  delay_min: 0
+  delay_max: 0
+image_gen:
+  enabled: false
+  chromedriver_dir: ./chromedriver
+  timeout: 120
