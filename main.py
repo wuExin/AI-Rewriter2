@@ -16,11 +16,15 @@ else:
     # 开发环境
     base_dir = Path(__file__).parent
 
-# 检查本地打包的 Playwright 浏览器
+# 设置 Playwright 浏览器路径
 local_playwright = base_dir / "ms-playwright"
 if local_playwright.exists():
     os.environ['PLAYWRIGHT_BROWSERS_PATH'] = str(local_playwright)
     print(f"[INFO] 使用本地 Playwright 浏览器: {local_playwright}")
+elif 'PLAYWRIGHT_BROWSERS_PATH' not in os.environ:
+    # 使用系统默认路径
+    system_pw = Path(os.environ.get('LOCALAPPDATA', '')) / 'ms-playwright'
+    os.environ['PLAYWRIGHT_BROWSERS_PATH'] = str(system_pw)
 
 from src.gui import App
 
