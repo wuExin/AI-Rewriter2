@@ -49,7 +49,7 @@ echo.
 REM ========== 安装 opencli 依赖 ==========
 echo [3/4] 安装 opencli 依赖...
 cd opencli
-call npm install --registry=https://registry.npmmirror.com
+call npm install --ignore-scripts --registry=https://registry.npmmirror.com
 if errorlevel 1 (
     echo [错误] opencli 依赖安装失败
     pause
