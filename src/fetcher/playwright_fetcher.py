@@ -312,40 +312,15 @@ class PlaywrightFetcher:
                         contentElement.querySelectorAll(sel).forEach(el => el.remove());
                     });
 
-                    // 只取前几个段落（正文通常在前面）
-                    const paragraphs = contentElement.querySelectorAll('p, div');
-                    let text = '';
-                    let emptyCount = 0;
+                    // 移除图片容器，避免空div干扰和图片说明重复
+                    contentElement.querySelectorAll('.pgc-img').forEach(el => el.remove());
 
-                    for (let i = 0; i < paragraphs.length; i++) {
-                        const p = paragraphs[i];
-                        const txt = p.innerText || p.textContent || '';
-
-                        // 跳过空段落
-                        if (!txt.trim()) {
-                            emptyCount++;
-                            if (emptyCount > 2) break; // 连续2个空段落后停止
-                            continue;
-                        }
-                        emptyCount = 0;
-
-                        // 跳过明显的评论区标识
-                        if (txt.includes('评论') || txt.includes('登录') ||
-                            txt.includes('举报') || txt.includes('分享') ||
-                            txt.includes('收藏') || txt.includes('查看全部')) {
-                            break;
-                        }
-
-                        text += txt + '\n\n';
-
-                        // 如果已经有足够内容且遇到短段落，可能到正文末尾
-                        if (text.length > 500 && txt.length < 50) {
-                            break;
-                        }
-                    }
+                    // 直接获取清理后的全部文本，保留段落结构
+                    let text = contentElement.innerText || contentElement.textContent || '';
+                    text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 
                     if (text.length > 100) {
-                        return text.trim();
+                        return text;
                     }
                 }
 
@@ -544,6 +519,9 @@ class PlaywrightFetcher:
 
         # 移除常见的噪音文本
         noise_patterns = [
+            r"作品声明[：:].*",
+            r"►",
+            r"#头条精选.*?#",
             r"点击.*?关注",
             r"扫码.*?关注",
             r"长按.*?识别",
