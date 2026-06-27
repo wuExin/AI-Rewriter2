@@ -31,6 +31,7 @@ Thumbs.db
 
 # 临时文件
 AI文章改写工具V2_元宝版_v2.1/
+*_tmp_dist/
 answer.txt
 dump_think_dom.mjs
 inspect_dom.mjs

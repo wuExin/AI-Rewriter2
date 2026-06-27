@@ -73,6 +73,30 @@ if exist "opencli\tsconfig.json" (
     copy /Y "opencli\tsconfig.json" "%DIST_DIR%\opencli\" >nul
 )
 
+REM opencli/node_modules（已装好的依赖，用户无需再 npm install）
+if exist "opencli\node_modules" (
+    echo   复制 opencli/node_modules（约 200MB）...
+    xcopy "opencli\node_modules" "%DIST_DIR%\opencli\node_modules\" /E /I /Y /Q >nul
+) else (
+    echo   [警告] opencli\node_modules 不存在，跳过
+)
+
+REM Playwright 浏览器（优先本地，其次系统目录）
+set PW_FOUND=0
+if exist "ms-playwright" (
+    echo   复制本地 ms-playwright（约 400MB）...
+    xcopy "ms-playwright" "%DIST_DIR%\ms-playwright\" /E /I /Y /Q >nul
+    set PW_FOUND=1
+)
+if "%PW_FOUND%"=="0" if exist "%LOCALAPPDATA%\ms-playwright" (
+    echo   复制系统 ms-playwright（约 400MB）...
+    xcopy "%LOCALAPPDATA%\ms-playwright\chromium-*" "%DIST_DIR%\ms-playwright\" /E /I /Y /Q >nul
+    set PW_FOUND=1
+)
+if "%PW_FOUND%"=="0" (
+    echo   [警告] 未找到 Playwright 浏览器，用户需自行下载
+)
+
 echo [OK] 文件复制完成
 echo.
 
