@@ -893,7 +893,11 @@ class ImitationPipeline:
             full_article = ""
             if titles:
                 full_article += "【备选标题】\n" + "\n".join(titles) + "\n\n"
-            full_article += rewritten + "\n\n【付费处】\n\n" + ending
+            # 新提示词第一步会在结尾输出【付费处】，拼装前剥掉，避免与下方分隔符重复
+            rewritten_for_assembly = rewritten.rstrip()
+            if rewritten_for_assembly.endswith("【付费处】"):
+                rewritten_for_assembly = rewritten_for_assembly[:-len("【付费处】")].rstrip()
+            full_article += rewritten_for_assembly + "\n\n【付费处】\n\n" + ending
             result["word_count"] = self._count_chinese_chars(full_article)
 
             output_file = os.path.join(article_dir, f"{safe_title}_仿写文.docx")
